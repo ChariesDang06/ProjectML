@@ -1,6 +1,6 @@
 # Chạy Notebook
 
-Để chayh các notebook .ipynb, cài đặ Jupyter Notebook bằng pip
+Để chạy các notebook .ipynb, cài đặ Jupyter Notebook bằng pip
 
 ```
 pip install notebook
