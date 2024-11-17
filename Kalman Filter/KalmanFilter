@@ -1,0 +1,118 @@
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Hàm để khởi tạo Kalman Filter
+def initialize_kalman_filter(initial_latitude, initial_longitude):
+    # Ma trận chuyển tiếp trạng thái (4x4)
+    F = np.array([[1, 0, 1, 0],  # latitude dựa trên velocity_lat
+                  [0, 1, 0, 1],  # longitude dựa trên velocity_lon
+                  [0, 0, 1, 0],  # velocity_lat không thay đổi
+                  [0, 0, 0, 1]]) # velocity_lon không thay đổi
+
+    # Ma trận hiệp phương sai của hệ thống (4x4)
+    Q = np.eye(4) * 0.01  # Nhiễu hệ thống (có thể điều chỉnh)
+
+    # Ma trận đo lường (2x4)
+    H = np.array([[1, 0, 0, 0],  # latitude được đo trực tiếp
+                  [0, 1, 0, 0]]) # longitude được đo trực tiếp
+
+    # Ma trận hiệp phương sai của đo lường (2x2)
+    R = np.eye(2) * 0.1  # Nhiễu đo lường (có thể điều chỉnh)
+
+    # Trạng thái ban đầu (4x1): [latitude, longitude, velocity_lat, velocity_lon]
+    x0 = np.array([initial_latitude, initial_longitude, 0, 0])
+
+    # Hiệp phương sai ban đầu (4x4)
+    P0 = np.eye(4) * 1.0  # Có thể điều chỉnh
+
+    # Trả về các giá trị ban đầu của Kalman Filter
+    return F, H, Q, R, x0, P0
+
+# Hàm để dự đoán và cập nhật Kalman Filter
+def kalman_filter_step(F, H, Q, R, P, x, z):
+    # Bước dự đoán
+    x_pred = F @ x
+    P_pred = F @ P @ F.T + Q
+
+    # Cập nhật với phép đo GPS mới
+    y = z - H @ x_pred  # Residual (dư lượng)
+    S = H @ P_pred @ H.T + R
+    K = P_pred @ H.T @ np.linalg.inv(S)  # Kalman Gain
+
+    x_updated = x_pred + K @ y
+    P_updated = (np.eye(len(P)) - K @ H) @ P_pred
+
+    return x_updated, P_updated
+
+# Hàm để xử lý một tệp CSV
+def process_csv_file(file_path):
+    # Đọc dữ liệu GPS từ file CSV
+    data = pd.read_csv(file_path)
+    
+    # Kiểm tra cột 'Time' có tồn tại
+    if 'Time' in data.columns:
+        time_data = data['Time'].values  # Lưu trữ cột thời gian
+    else:
+        time_data = np.arange(len(data))  # Nếu không có, tạo một dãy số thay thế
+
+    gps_measurements = data[['Latitude', 'Longitude']].values
+    
+    # Khởi tạo Kalman Filter với giá trị GPS ban đầu
+    F, H, Q, R, x, P = initialize_kalman_filter(gps_measurements[0, 0], gps_measurements[0, 1])
+
+    # Kết quả sau khi áp dụng Kalman Filter
+    filtered_positions = []
+
+    # Áp dụng Kalman Filter cho từng phép đo GPS
+    for z in gps_measurements:
+        x, P = kalman_filter_step(F, H, Q, R, P, x, z)  # Bước dự đoán và cập nhật
+        filtered_positions.append(x[:2])  # Lưu latitude và longitude ước lượng
+
+    # Chuyển kết quả thành DataFrame và thêm cột thời gian
+    filtered_positions = np.array(filtered_positions)
+    output = pd.DataFrame(filtered_positions, columns=['Latitude', 'Longitude'])
+    output['Time'] = time_data  # Thêm cột thời gian vào
+
+    # Lưu kết quả sau khi lọc vào tệp mới
+    output_file_path = f"filtered_{os.path.basename(file_path)}"
+    output.to_csv(output_file_path, index=False)
+    
+    # Trả về dữ liệu ban đầu và dữ liệu đã lọc
+    return data, output
+
+# Hàm để vẽ biểu đồ so sánh (thêm thời gian vào biểu đồ)
+def plot_scatter_comparison(raw_data, filtered_data, file_name):
+    # Dữ liệu GPS ban đầu
+    plt.scatter(raw_data['Latitude'], raw_data['Longitude'], label='Raw GPS Data', c='red')
+
+    # Dữ liệu GPS sau khi lọc Kalman
+    plt.scatter(filtered_data['Latitude'], filtered_data['Longitude'], label='Filtered GPS Data', c='blue')
+
+    plt.xlabel('Latitude')
+    plt.ylabel('Longitude')
+    plt.title(f'GPS Data: Dữ liệu gốc vs Dữ liệu đã lọc Kalman Filter của {file_name}')
+    plt.legend()
+    
+    # Hiển thị biểu đồ scatter
+    plt.show()
+
+# Hàm chính để xử lý nhiều tệp CSV
+def process_multiple_csv_files(directory):
+    # Lấy danh sách các tệp CSV trong thư mục
+    csv_files = [f for f in os.listdir(directory) if f.endswith('.csv')]
+    
+    # Duyệt qua từng tệp CSV và xử lý
+    for file in csv_files:
+        file_path = os.path.join(directory, file)
+        print(f"Processing {file_path}")
+        
+        # Xử lý và áp dụng Kalman Filter cho từng tệp
+        raw_data, filtered_data = process_csv_file(file_path)
+        
+        # Vẽ biểu đồ so sánh giữa dữ liệu raw và dữ liệu sau khi lọc
+        plot_scatter_comparison(raw_data, filtered_data, file)
+
+# Gọi hàm để xử lý tất cả các tệp CSV trong thư mục 'collected_data/'
+process_multiple_csv_files('D:\\New folder\\collected_data')
